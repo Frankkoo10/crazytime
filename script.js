@@ -1,3 +1,63 @@
+// ==========================================
+// 1. CONFIGURACIÓN DE SUPABASE
+// ==========================================
+const supabaseUrl = 'https://wgqqbahoalozgfukioza.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndncXFiYWhvYWxvemdmdWtpb3phIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNTA3OTYsImV4cCI6MjA5OTgyNjc5Nn0.v_kpYceS8ceIUBNaLLHjfyBeFA2Y3lDRy7Yn6cb5Uz8';
+const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+let currentUser = null;
+let balance = 0; // Se actualizará al leer la base de datos
+
+// ==========================================
+// 2. LÓGICA DE AUTENTICACIÓN Y SALDOS
+// ==========================================
+async function verificarSesionYJugar() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    
+    if (!session) {
+        // Redirigir al lobby si no está logueado
+        window.location.href = 'index.html'; 
+        return;
+    }
+    
+    currentUser = session.user;
+
+    // Buscamos su saldo en la tabla "perfiles"
+    const { data: perfilData } = await supabaseClient
+        .from('perfiles')
+        .select('saldo')
+        .eq('id', currentUser.id)
+        .single();
+
+    if (perfilData) {
+        balance = parseFloat(perfilData.saldo);
+    } else {
+        // Si no tiene perfil, le damos el saldo inicial (ej. 100000) y lo creamos
+        balance = 100000; 
+        await guardarSaldoEnBD(); 
+    }
+
+    initGame(); // Iniciar el juego una vez tengamos los datos
+}
+
+async function guardarSaldoEnBD() {
+    if(!currentUser) return;
+    
+    await supabaseClient
+        .from('perfiles')
+        .upsert({ 
+            id: currentUser.id, 
+            saldo: balance 
+        });
+}
+
+// Iniciar sesión apenas carga la ventana
+window.onload = verificarSesionYJugar;
+
+
+// ==========================================
+// 3. LÓGICA DEL JUEGO CRAZY TIME
+// ==========================================
 const segments = [
     { name: "1", type: "number", val: 1, color: "#00bfff" },
     { name: "2", type: "number", val: 2, color: "#ffd700" },
@@ -55,7 +115,6 @@ const segments = [
     { name: "2", type: "number", val: 2, color: "#ffd700" }
 ];
 
-let balance = 100000; 
 let activeChipValue = 25; 
 
 let bets = {
@@ -132,6 +191,7 @@ function setupBetButtons() {
                 balance -= betCost;
                 bets[target] += betCost;
                 updateUI();
+                guardarSaldoEnBD(); // <-- GUARDAR DESCUENTO EN SUPABASE
             } else {
                 document.getElementById('display-message').textContent = "❌ ¡Saldo insuficiente para esta ficha!";
             }
@@ -164,7 +224,8 @@ function setupControlButtons() {
 }
 
 function updateUI() {
-    document.getElementById('balance').textContent = balance;
+    // Mostrar balance formateado
+    document.getElementById('balance').textContent = Number(balance).toFixed(2);
     
     let totalBet = 0;
     for (let key in bets) {
@@ -186,11 +247,16 @@ function updateUI() {
 
 function clearBets() {
     if (isSpinning) return;
+    
+    let refundedAmount = 0;
     for (let key in bets) {
+        refundedAmount += bets[key];
         balance += bets[key];
         bets[key] = 0;
     }
     updateUI();
+    
+    if (refundedAmount > 0) guardarSaldoEnBD(); // <-- GUARDAR REEMBOLSO EN SUPABASE
 }
 
 function repeatLastBet() {
@@ -217,6 +283,7 @@ function repeatLastBet() {
         balance -= totalCost;
         bets = { ...previousBets };
         updateUI();
+        guardarSaldoEnBD(); // <-- GUARDAR DESCUENTO AL REPETIR EN SUPABASE
         document.getElementById('display-message').textContent = "✅ ¡Apuesta anterior repetida!";
     } else {
         document.getElementById('display-message').textContent = "❌ ¡Saldo insuficiente para repetir esta apuesta!";
@@ -288,6 +355,7 @@ function evaluateResult(winner, slotTarget, slotMultiplier) {
             winAmount = bets[winner.name] + (bets[winner.name] * winner.val * multiplier);
             balance += winAmount;
             document.getElementById('display-message').innerHTML += `<br>💰 ¡Ganaste $${winAmount}!`;
+            guardarSaldoEnBD(); // <-- GUARDAR GANANCIAS EN SUPABASE
         } else {
             document.getElementById('display-message').innerHTML += `<br>No tenías apuesta en este número.`;
         }
@@ -363,6 +431,7 @@ function finishBonus(betAmount, multiplier) {
             let winAmount = betAmount * multiplier;
             balance += winAmount;
             document.getElementById('display-message').innerHTML = `🎉 ¡Fin del Bonus! Multiplicador de ${multiplier}x. ¡Ganaste $${winAmount}!`;
+            guardarSaldoEnBD(); // <-- GUARDAR GANANCIAS DE BONUS EN SUPABASE
         } else {
             document.getElementById('display-message').innerHTML = `🎁 Fin del Bonus: ${multiplier}x (No tenías apuesta aquí).`;
         }
@@ -372,4 +441,4 @@ function finishBonus(betAmount, multiplier) {
     }, 5000);
 }
 
-initGame();
+// initGame(); -> Eliminado del final porque ahora se inicia al terminar de verificar la sesión en verificarSesionYJugar()
