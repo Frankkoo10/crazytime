@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crazy Time - Réplica Oficial con Fichas</title>
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <a href="https://frankkoo10.github.io/casinou/" class="top-logo">
+        <img src="Logo-inicial.png" alt="Menú Casino" />
+    </a>
+
+    <div class="online-indicator">
+        <span class="dot"></span> <span id="online-count-value">1</span> Jugador(es)
+    </div>
+
+    <div class="game-container">
+        <header>
+            <h1>CRAZY TIME</h1>
+            <div class="stats">
+                <div>SALDO: $<span id="balance">CARGANDO...</span></div>
+                <div>APUESTA: $<span id="total-bet">0</span></div>
+            </div>
+        </header>
+
+        <div id="history-bar" class="history-bar"></div>
+
+        <div class="top-slot">
+            <div class="slot-title">TOP SLOT MULTIPLIER</div>
+            <div class="slot-reels">
+                <div class="reel" id="slot-segment">?</div>
+                <div class="reel" id="slot-multiplier" style="color: #00ffcc;">1x</div>
+            </div>
+        </div>
+
+        <div class="wheel-outer">
+            <div class="pointer-container">
+                <div class="golden-triangle"></div>
+                <div class="pointer-flap">▼</div>
+            </div>
+            <div class="wheel" id="wheel">
+                <div class="wheel-center">
+                    <div class="center-logo">CRAZY<br><span>TIME</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="display-panel" id="display-message">
+            Verificando sesión y sincronizando servidor...
+        </div>
+
+        <div class="chip-selector-container">
+            <span class="selector-label">Ficha activa:</span>
+            <div class="chip-selector">
+                <div class="selector-chip active" data-value="25">$25</div>
+                <div class="selector-chip" data-value="50">$50</div>
+                <div class="selector-chip" data-value="100">$100</div>
+                <div class="selector-chip" data-value="500">$500</div>
+                <div class="selector-chip" data-value="1000">$1K</div>
+                <div class="selector-chip" data-value="5000">$5K</div>
+                <div class="selector-chip" data-value="10000">$10K</div>
+            </div>
+        </div>
+
+        <div class="betting-board">
+            <button class="bet-btn btn-1" data-target="1">
+                <span class="chip" id="chip-1">$0</span>
+            </button>
+            <button class="bet-btn btn-2" data-target="2">
+                <span class="chip" id="chip-2">$0</span>
+            </button>
+            <button class="bet-btn btn-5" data-target="5">
+                <span class="chip" id="chip-5">$0</span>
+            </button>
+            <button class="bet-btn btn-10" data-target="10">
+                <span class="chip" id="chip-10">$0</span>
+            </button>
+            
+            <button class="bet-btn btn-coin" data-target="COIN FLIP">
+                <span class="chip" id="chip-coin">$0</span>
+            </button>
+            <button class="bet-btn btn-cash" data-target="CASH HUNT">
+                <span class="chip" id="chip-cash">$0</span>
+            </button>
+            <button class="bet-btn btn-pachinko" data-target="PACHINKO">
+                <span class="chip" id="chip-pachinko">$0</span>
+            </button>
+            <button class="bet-btn btn-crazy" data-target="CRAZY TIME">
+                <span class="chip" id="chip-crazy">$0</span>
+            </button>
+        </div>
+
+        <div class="controls">
+            <button id="spin-btn" disabled style="cursor: default;">ESPERANDO...</button>
+            <button id="repeat-btn">Repetir</button>
+            <button id="clear-btn">Limpiar</button>
+        </div>
+    </div>
+
+    <div id="bonus-screen" class="bonus-screen hidden">
+        <div class="bonus-content">
+            <h2 id="bonus-title">BONUS GAME</h2>
+            <div id="bonus-game-area" style="font-size: 1.2rem; line-height: 1.6;">Generando ronda...</div>
+        </div>
+    </div>
+
+    <button id="chat-toggle-btn" class="chat-toggle-btn" onclick="toggleChat()">
+        💬 Chat
+    </button>
+
+    <div id="chat-popup" class="chat-popup">
+        <div class="chat-header">
+            <span>Chat en Vivo</span>
+            <button class="chat-close-btn" onclick="toggleChat()">✖</button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-group">
+            <input type="text" id="chat-input" placeholder="Escribe un mensaje..." onkeypress="manejarEnterChat(event)" autocomplete="off">
+            <button id="btn-send-chat" onclick="enviarMensajeChat()">Enviar</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
