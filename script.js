@@ -33,9 +33,6 @@ async function verificarSesionYJugar() {
     const { data: { session } } = await supabaseClient.auth.getSession();
     
     if (!session) {
-        // Redirigir al lobby si no está logueado
-        // window.location.href = 'index.html'; 
-        // Para pruebas locales sin sesión, habilitamos modo prueba
         console.warn("No hay sesión activa. Iniciando en MODO PRUEBA...");
         currentUser = { id: 'usuario_prueba_local' };
         balance = 10000;
@@ -43,7 +40,6 @@ async function verificarSesionYJugar() {
         currentUser = session.user;
         if (currentUser.email) displayUsername = currentUser.email.split('@')[0];
 
-        // Buscamos su saldo en la tabla "perfiles"
         const { data: perfilData, error } = await supabaseClient
             .from('perfiles')
             .select('saldo')
@@ -53,7 +49,6 @@ async function verificarSesionYJugar() {
         if (perfilData) {
             balance = parseFloat(perfilData.saldo);
         } else {
-            // Si no tiene perfil, le damos el saldo inicial
             balance = 10000; 
             await guardarSaldoEnBD(); 
         }
@@ -75,12 +70,10 @@ async function guardarSaldoEnBD() {
         });
 }
 
-// Iniciar sesión apenas carga la ventana
 window.onload = verificarSesionYJugar;
 
-
 // ==========================================
-// 4. SISTEMA DE CHAT Y MULTIJUGADOR (NUEVO)
+// 4. SISTEMA DE CHAT Y MULTIJUGADOR 
 // ==========================================
 function iniciarConexionMultijugador() {
     const presenceKey = (currentUser.id === 'usuario_prueba_local') 
@@ -154,9 +147,8 @@ function mostrarMensajeEnChat(user, text) {
     container.scrollTop = container.scrollHeight;
 }
 
-
 // ==========================================
-// 5. MOTOR DEL JUEGO SINCRONIZADO GLOBALMENTE (NUEVO)
+// 5. MOTOR DEL JUEGO SINCRONIZADO GLOBALMENTE
 // ==========================================
 function mulberry32(a) {
     return function() {
@@ -171,18 +163,15 @@ function obtenerDatosDeRonda(roundId) {
     let rng = mulberry32(roundId);
     rng(); rng(); rng(); // Calentamiento
 
-    // 1. Top Slot
     const slotOptions = ["1", "2", "5", "10", "COIN FLIP", "CASH HUNT", "PACHINKO", "CRAZY TIME"];
     const slotTarget = slotOptions[Math.floor(rng() * slotOptions.length)];
     const slotMults = [2, 3, 5, 10, 15, 25];
     const slotMultiplier = slotMults[Math.floor(rng() * slotMults.length)];
 
-    // 2. Wheel Winner
     const totalSegments = segments.length; // 54
     const winnerIndex = Math.floor(rng() * totalSegments);
     const winningSegment = segments[winnerIndex];
 
-    // 3. Predicciones deterministas para el Bonus
     let bonusData = {};
     if (winningSegment.name === "COIN FLIP") {
         bonusData.redMult = Math.floor(rng() * 20 + 2);
@@ -217,14 +206,14 @@ function sincronizarRelojGlobal() {
     while (true) {
         currentRoundData = obtenerDatosDeRonda(currentRoundId);
         if (currentRoundStart + currentRoundData.totalDuration > nowMs) {
-            break; // Momento actual
+            break; 
         }
         currentRoundStart += currentRoundData.totalDuration;
         currentRoundId++;
     }
 
-    // Comprobar si quedó colgado o si hay apuestas que borrar por desconexión
     clearBetsLocally(); 
+    evaluarApuestasPendientes(currentRoundId); // VERIFICA APUESTAS OFFLINE / REFRESH
     generarHistorial(currentRoundId);
     requestAnimationFrame(loopGlobalJuego);
 }
@@ -257,17 +246,16 @@ function loopGlobalJuego() {
         
         estadoActual = '';
         enRondaActual = false;
-        clearBetsLocally(); // Limpiamos mesa al iniciar nueva ronda si algo falló
+        clearBetsLocally(); 
+        limpiarApuestasLocalmente(); // Limpia almacenamiento para que no arrastre a nueva ronda
         generarHistorial(currentRoundId);
     }
 
     if (elapsed < WAIT_TIME_MS) {
-        // --- FASE 1: APUESTAS ---
         if (estadoActual !== 'WAITING') {
             estadoActual = 'WAITING';
             enRondaActual = true;
             document.getElementById('spin-btn').style.background = "linear-gradient(to bottom, #ffcc00, #ff6600)";
-            // Restaurar rueda a 0
             document.getElementById('wheel').style.transition = "none";
             document.getElementById('wheel').style.transform = `rotate(0deg)`;
             currentRotation = 0;
@@ -278,13 +266,11 @@ function loopGlobalJuego() {
         document.getElementById('spin-btn').innerText = `APUESTAS: ${secsLeft}s`;
 
     } else if (elapsed < WAIT_TIME_MS + SPIN_TIME_MS) {
-        // --- FASE 2: GIRO ---
         if (estadoActual !== 'SPINNING') {
             estadoActual = 'SPINNING';
             document.getElementById('spin-btn').innerText = `¡GIRANDO!`;
             document.getElementById('spin-btn').style.background = "#666";
             
-            // Guardamos las apuestas actuales para el botón Repetir
             let totalBet = 0;
             for (let key in bets) totalBet += bets[key];
             if (totalBet > 0) previousBets = { ...bets };
@@ -292,10 +278,8 @@ function loopGlobalJuego() {
             ejecutarGiroSincronizado(currentRoundData);
         }
     } else {
-        // --- FASE 3: RESULTADO Y PAGOS ---
         if (estadoActual !== 'REWARDING') {
             estadoActual = 'REWARDING';
-            // Validamos resultado con la misma data precalculada
             evaluateResult(currentRoundData.winningSegment, currentRoundData.slotTarget, currentRoundData.slotMultiplier, currentRoundData.bonusData);
             
             historialResultados.unshift(currentRoundData.winningSegment.name); 
@@ -309,7 +293,85 @@ function loopGlobalJuego() {
 
 
 // ==========================================
-// 6. LÓGICA DEL JUEGO CRAZY TIME (ORIGINAL MODIFICADO PARA SYNC)
+// 5.5 SISTEMA DE PERSISTENCIA DE APUESTAS (NUEVO)
+// ==========================================
+function guardarApuestasLocalmente() {
+    if (!currentUser) return;
+    const betKey = `crazyTime_bets_${currentUser.id}`;
+    const betData = {
+        roundId: currentRoundId,
+        bets: bets
+    };
+    localStorage.setItem(betKey, JSON.stringify(betData));
+}
+
+function limpiarApuestasLocalmente() {
+    if (!currentUser) return;
+    const betKey = `crazyTime_bets_${currentUser.id}`;
+    localStorage.removeItem(betKey);
+}
+
+function evaluarApuestasPendientes(actualRound) {
+    if (!currentUser) return;
+    const betKey = `crazyTime_bets_${currentUser.id}`;
+    const stored = localStorage.getItem(betKey);
+    if (!stored) return;
+
+    try {
+        const data = JSON.parse(stored);
+        if (data.roundId === actualRound) {
+            // El usuario actualizó la página en la misma ronda, restauramos mesa
+            bets = data.bets;
+            updateUI();
+        } else if (data.roundId < actualRound) {
+            // El usuario cerró el juego y la ronda ya pasó. Calculamos si ganó.
+            let pastData = obtenerDatosDeRonda(data.roundId);
+            let winner = pastData.winningSegment;
+            let slotTarget = pastData.slotTarget;
+            let slotMultiplier = pastData.slotMultiplier;
+            let bonusData = pastData.bonusData;
+
+            let topSlotMult = (winner.name === slotTarget) ? slotMultiplier : 1;
+            let totalWon = 0;
+
+            if (winner.type === "number") {
+                if (data.bets[winner.name] > 0) {
+                    totalWon = data.bets[winner.name] + (data.bets[winner.name] * winner.val * topSlotMult);
+                }
+            } else {
+                if (data.bets[winner.name] > 0) {
+                    let finalMult = 0;
+                    if (winner.name === "COIN FLIP") {
+                        finalMult = bonusData.sideWinner === "ROJO" ? (bonusData.redMult * topSlotMult) : (bonusData.blueMult * topSlotMult);
+                    } else if (winner.name === "CASH HUNT" || winner.name === "PACHINKO" || winner.name === "CRAZY TIME") {
+                        finalMult = bonusData.finalMultBase * topSlotMult;
+                    }
+                    totalWon = data.bets[winner.name] * finalMult;
+                }
+            }
+
+            if (totalWon > 0) {
+                balance += totalWon;
+                guardarSaldoEnBD();
+                
+                // Le avisamos por chat que ganó mientras no estaba
+                setTimeout(() => {
+                    document.getElementById("chat-popup").style.display = "flex";
+                    mostrarMensajeEnChat("SISTEMA", `💸 ¡Recuperaste $${totalWon} de tu apuesta ganadora en la ronda anterior!`);
+                }, 2000);
+            }
+            limpiarApuestasLocalmente();
+        } else {
+            limpiarApuestasLocalmente();
+        }
+    } catch (e) {
+        limpiarApuestasLocalmente();
+    }
+}
+
+
+// ==========================================
+// 6. LÓGICA DEL JUEGO CRAZY TIME 
 // ==========================================
 const segments = [
     { name: "1", type: "number", val: 1, color: "#00bfff" },
@@ -416,7 +478,7 @@ function setupChipSelector() {
     const chips = document.querySelectorAll(".selector-chip");
     chips.forEach(chip => {
         chip.onclick = () => {
-            if (estadoActual !== 'WAITING') return; // Bloqueo si no es tiempo de apostar
+            if (estadoActual !== 'WAITING') return; 
             chips.forEach(c => c.classList.remove("active"));
             chip.classList.add("active");
             activeChipValue = parseInt(chip.getAttribute("data-value"));
@@ -440,6 +502,7 @@ function setupBetButtons() {
                 bets[target] += betCost;
                 updateUI();
                 guardarSaldoEnBD();
+                guardarApuestasLocalmente(); // <-- GURDA APUESTA AQUI
             } else {
                 document.getElementById('display-message').textContent = "❌ ¡Saldo insuficiente para esta ficha!";
             }
@@ -485,6 +548,7 @@ function clearBets() {
     }
     updateUI();
     if (refundedAmount > 0) guardarSaldoEnBD(); 
+    limpiarApuestasLocalmente(); // <-- LIMPIA APUESTA AL BORRAR
 }
 
 function clearBetsLocally() {
@@ -512,6 +576,7 @@ function repeatLastBet() {
         bets = { ...previousBets };
         updateUI();
         guardarSaldoEnBD(); 
+        guardarApuestasLocalmente(); // <-- GUARDA APUESTA AQUI
         document.getElementById('display-message').textContent = "✅ ¡Apuesta anterior repetida!";
     } else {
         document.getElementById('display-message').textContent = "❌ ¡Saldo insuficiente para repetir esta apuesta!";
@@ -525,7 +590,7 @@ function ejecutarGiroSincronizado(dataRound) {
     document.getElementById('slot-multiplier').textContent = dataRound.slotMultiplier + "x";
 
     setTimeout(() => {
-        if(estadoActual !== 'SPINNING') return; // Prevención si el usuario refrescó mal
+        if(estadoActual !== 'SPINNING') return; 
 
         document.getElementById('display-message').textContent = "🎡 ¡GIRANDO LA RUEDA!";
         
@@ -534,7 +599,6 @@ function ejecutarGiroSincronizado(dataRound) {
         const normalizedTarget = ((targetAngle % 360) + 360) % 360;
         const extraSpins = 360 * 5; 
 
-        // Reseteamos visualmente para evitar giros bizarros en refrescos
         document.getElementById('wheel').style.transition = "none";
         document.getElementById('wheel').style.transform = `rotate(0deg)`;
 
@@ -569,6 +633,7 @@ function evaluateResult(winner, slotTarget, slotMultiplier, bonusData) {
             document.getElementById('display-message').innerHTML += `<br>No tenías apuesta en este número.`;
         }
         clearBetsLocally();
+        limpiarApuestasLocalmente(); // <-- LIMPIA APUESTA TRAS COBRAR
     } else {
         triggerBonusSync(winner.name, bets[winner.name], multiplier, bonusData);
     }
@@ -646,15 +711,14 @@ function finishBonusSync(betAmount, multiplier) {
         }
 
         clearBetsLocally();
+        limpiarApuestasLocalmente(); // <-- LIMPIA APUESTA TRAS COBRAR BONUS
     }, 4500);
 }
 
 // ==========================================
 // 7. FUNCIONES DEL HISTORIAL DE IMÁGENES
 // ==========================================
-
 function obtenerImagenResultado(name) {
-    // Aquí defines el nombre exacto de la imagen que vas a subir a tu carpeta
     switch(name) {
         case "1": return "res-1.png";
         case "2": return "res-2.png";
@@ -678,8 +742,6 @@ function renderizarHistorial() {
         item.classList.add("history-item");
         
         const imgSrc = obtenerImagenResultado(nombreRes);
-        
-        // Si no encuentra imagen (porque no la subiste aún), muestra un texto de fallback para que no quede roto
         item.innerHTML = `<img src="${imgSrc}" alt="${nombreRes}" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\\'font-size:10px; color:#fff;\\'>${nombreRes}</span>';">`;
         
         barra.appendChild(item);
