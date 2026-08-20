@@ -733,7 +733,7 @@ function obtenerImagenResultado(name) {
         case "COIN FLIP": return "res-coinflip.png";
         case "VICTORY HUNT": return "res-cashhunt.png";
         case "PACHINKO": return "res-pachinko.png";
-        case "VICTORY TIME": return "res-crazytime.png";
+        case "VICTORY TIME": return "res-vtime.png";
         default: return "";
     }
 }
